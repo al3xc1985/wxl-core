@@ -1,3 +1,4 @@
+// Engine small-block heap allocator / free addresses and their signatures.
 // Copyright (C) 2026 WraithEngine
 //
 // This program is free software: you can redistribute it and/or modify
@@ -15,16 +16,16 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 
-// In-process live byte patching of the client image. Used by patcher/ for
-// the version-gate patch and by features that nop/replace inline code.
-namespace wraith::core::mem
+// Engine heap allocator / free entries. Both are callee-cleaned (4 args).
+namespace wraith::offsets::engine::mem
 {
-    // Copy `len` bytes from `src` into `dst`, toggling page protection around the write.
-    bool Patch(void* dst, const void* src, size_t len);
+    // Allocate a block: (size, fileName, line, flags) -> pointer (size is rounded up internally).
+    constexpr uintptr_t kAlloc = 0x0076E540;
+    // Free a block obtained from the allocator: (ptr, fileName, line, flags).
+    constexpr uintptr_t kFree  = 0x0076E5A0;
 
-    // Write `len` copies of `value` at `dst` (e.g. fill with 0x90 NOP).
-    bool Fill(void* dst, uint8_t value, size_t len);
+    using Mem_AllocFn = void*(__stdcall*)(uint32_t size, const char* file, int line, uint32_t flags);
+    using Mem_FreeFn  = void(__stdcall*)(void* ptr, const char* file, int line, uint32_t flags);
 }

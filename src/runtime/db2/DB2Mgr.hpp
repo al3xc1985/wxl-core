@@ -1,3 +1,5 @@
+// Data-table subsystem entry point. Tables load lazily on first access; this manager tracks the live
+// tables so they can be unloaded/reloaded in bulk.
 // Copyright (C) 2026 WraithEngine
 //
 // This program is free software: you can redistribute it and/or modify
@@ -15,16 +17,20 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
+#include "DB2File.hpp"
 
-// In-process live byte patching of the client image. Used by patcher/ for
-// the version-gate patch and by features that nop/replace inline code.
-namespace wraith::core::mem
+#include <vector>
+
+// Data-table subsystem entry point. Tables load lazily on first access (so they do not depend on when
+// the archives are mounted); this manager only tracks the live tables so they can be unloaded/reloaded
+// in bulk.
+namespace wraith::features::db2
 {
-    // Copy `len` bytes from `src` into `dst`, toggling page protection around the write.
-    bool Patch(void* dst, const void* src, size_t len);
+    void Install();
 
-    // Write `len` copies of `value` at `dst` (e.g. fill with 0x90 NOP).
-    bool Fill(void* dst, uint8_t value, size_t len);
+    // Register a table so UnloadAll/ReloadAll reach it. A Definition singleton calls this once.
+    void Track(DB2File* table, const char* fileName);
+
+    void UnloadAll();
+    void ReloadAll();
 }

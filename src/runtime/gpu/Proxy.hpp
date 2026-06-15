@@ -15,16 +15,14 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
+#include <d3d12.h>
 
-// In-process live byte patching of the client image. Used by patcher/ for
-// the version-gate patch and by features that nop/replace inline code.
-namespace wraith::core::mem
+// The d3d9.dll proxy exports. The proxy carries the d3d9 entry points (Direct3DCreate9/Ex, declared by
+// the system d3d9.h) and these Wraith-private exports that hand the shared D3D12 device + queue (the ones
+// On12 runs on) to Wraith.dll so its D3D12 backend renders on the same queue as the engine.
+extern "C"
 {
-    // Copy `len` bytes from `src` into `dst`, toggling page protection around the write.
-    bool Patch(void* dst, const void* src, size_t len);
-
-    // Write `len` copies of `value` at `dst` (e.g. fill with 0x90 NOP).
-    bool Fill(void* dst, uint8_t value, size_t len);
+    __declspec(dllimport) ID3D12Device*       WraithD3D12Device();
+    __declspec(dllimport) ID3D12CommandQueue* WraithD3D12Queue();
+    __declspec(dllimport) void                WraithD3D12DrainDebug();
 }

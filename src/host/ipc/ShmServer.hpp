@@ -15,16 +15,22 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
+#include <span>
+#include <vector>
 
-// In-process live byte patching of the client image. Used by patcher/ for
-// the version-gate patch and by features that nop/replace inline code.
-namespace wraith::core::mem
+#include "Protocol.hpp"
+
+// Creates the shared-memory window and per-channel events, then
+// reads requests / writes responses. Mirror of the DLL client (runtime/storage/ShmClient).
+namespace wraith::host::ipc
 {
-    // Copy `len` bytes from `src` into `dst`, toggling page protection around the write.
-    bool Patch(void* dst, const void* src, size_t len);
+    // Create and map the shared window + events. Host owns the objects.
+    bool Create();
 
-    // Write `len` copies of `value` at `dst` (e.g. fill with 0x90 NOP).
-    bool Fill(void* dst, uint8_t value, size_t len);
+    // Block until channel `i` has a request; returns the request payload bytes.
+    bool WaitRequest(uint32_t i, std::vector<uint8_t>& reqOut);
+
+    // Write the response payload to channel `i` and signal the client.
+    bool PostResponse(uint32_t i, std::span<const uint8_t> resp);
 }

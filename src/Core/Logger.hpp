@@ -1,13 +1,36 @@
+// Copyright (C) 2026 WraithEngine
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 #pragma once
 
-// WRAITH logging. printf-style, written to Logs/Wraith.log next to the client and mirrored to the
-// debugger. Use the WLOG_* macros.
-namespace wraith::log
+// The file log is always on, Release included.
+// Console output (host) is compiled out under NDEBUG.
+namespace wraith::core::log
 {
-    void Init();
-    void Write(const char* level, const char* fmt, ...);
+    // Open the log file at the given path. Idempotent.
+    void Open(const char* path);
+
+    // Append one formatted line. Thread-safe.
+    void Printf(const char* fmt, ...);
+
+    // Flush and close the log file.
+    void Close();
 }
 
-#define WLOG_INFO(...)  ::wraith::log::Write("INFO",  __VA_ARGS__)
-#define WLOG_WARN(...)  ::wraith::log::Write("WARN",  __VA_ARGS__)
-#define WLOG_ERROR(...) ::wraith::log::Write("ERROR", __VA_ARGS__)
+// Convenience record macros (level tag + the shared file log). Used across the host and the
+// shared decoder sources. All levels go to the same file; the tag is informational.
+#define WLOG_INFO(...)  ::wraith::core::log::Printf(__VA_ARGS__)
+#define WLOG_WARN(...)  ::wraith::core::log::Printf(__VA_ARGS__)
+#define WLOG_ERROR(...) ::wraith::core::log::Printf(__VA_ARGS__)

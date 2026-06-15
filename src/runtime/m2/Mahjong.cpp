@@ -13,18 +13,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#pragma once
+#include "Mahjong.hpp"
 
-#include <cstddef>
-#include <cstdint>
+#include "Logger.hpp"
 
-// In-process live byte patching of the client image. Used by patcher/ for
-// the version-gate patch and by features that nop/replace inline code.
-namespace wraith::core::mem
+// Mahjong: the physics runtime. Parses the model's physics description, runs a sequential-impulse solver,
+// and writes solved transforms into the live bone palette.
+//
+// BLOCKED: depends on the bone-palette view<->world correction (runtime/m2/Bone) and a physics-description
+// reader that are not landed here. No self-contained behavior to install yet, so Install() is inert.
+namespace wraith::runtime::mahjong
 {
-    // Copy `len` bytes from `src` into `dst`, toggling page protection around the write.
-    bool Patch(void* dst, const void* src, size_t len);
-
-    // Write `len` copies of `value` at `dst` (e.g. fill with 0x90 NOP).
-    bool Fill(void* dst, uint8_t value, size_t len);
+    void Install()
+    {
+        WLOG_INFO("M2/mahjong: physics solver not yet active");
+    }
 }

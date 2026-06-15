@@ -15,16 +15,21 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
+#include <string>
 
-// In-process live byte patching of the client image. Used by patcher/ for
-// the version-gate patch and by features that nop/replace inline code.
-namespace wraith::core::mem
+// FileDataID -> path resolution handed to the translators. The host owns the data
+// (Db2Store); a translator only needs the callback. This is a COLD boundary: the resolver
+// is a plain function pointer called once per unresolved reference, never in a hot loop.
+// No std::function, no virtual.
+namespace wraith::structure
 {
-    // Copy `len` bytes from `src` into `dst`, toggling page protection around the write.
-    bool Patch(void* dst, const void* src, size_t len);
+    // Resolve a FileDataID to a file path. Returns false if the id does not resolve.
+    using PathResolver = bool (*)(void* user, uint32_t fileDataId, std::string& outPath);
 
-    // Write `len` copies of `value` at `dst` (e.g. fill with 0x90 NOP).
-    bool Fill(void* dst, uint8_t value, size_t len);
+    struct ResolveCtx
+    {
+        PathResolver resolve = nullptr; // may be null for formats that need no resolution
+        void*        user    = nullptr; // opaque, passed back to resolve()
+    };
 }
