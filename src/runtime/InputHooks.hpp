@@ -1,4 +1,4 @@
-// Render-pipeline detours that publish the render events.
+// Window-input detour that republishes window messages as the OnInput event.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,10 +16,10 @@
 
 #pragma once
 
-// The core owns the dangerous detours and republishes them as clean events. Install once after the
-// graphics device is up; the MinHook function detours are armed by the caller's EnableAll() afterwards.
-// Emits OnM2BatchDraw, OnEndScene, OnFrame, OnWorldRenderEnd.
-namespace wxl::runtime::render
+// The core subclasses the client's top-level window ONCE and republishes every message as OnInput, so a
+// module never has to hook the window itself. A subscriber that consumes a message (sets *handled) makes
+// the core swallow it. Install once after the graphics device (hence the window) is up.
+namespace wxl::runtime::input
 {
     void Install();
 }

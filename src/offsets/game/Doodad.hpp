@@ -24,6 +24,13 @@
 // lookup itself is in offsets/game/ADT.hpp (kGetChunk). Modules never include this; they use wxl::game.
 namespace wxl::offsets::game::doodad
 {
+    // --- spawn ---
+    // Build a CMapDoodad from an MDDF placement (modelName, MDDF entry, tile origin). Returns the new
+    // CMapDoodad* in EAX. The "a placed doodad was created" point.
+    constexpr uintptr_t kSpawnFromMDDF = 0x007BECD0;
+    // __cdecl, 3 stack args, returns CMapDoodad*.
+    using SpawnFromMDDFFn = void*(__cdecl*)(const char* modelName, void* mddf, void* tileOrigin);
+
     // --- placed-doodad object fields ---
     constexpr size_t kFlags = 0x0C; // 1 = normal placement
 

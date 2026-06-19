@@ -27,14 +27,17 @@ namespace wxl::events
     enum class Event : uint32_t
     {
         OnModelLoad,     // a model finished loading and is parsed     (ModelLoadArgs)
-        OnFrame,         // per-frame present/end-scene                (FrameArgs)
+        OnFrame,         // per-frame Present                          (FrameArgs)
         OnEndScene,      // end of the frame, before present           (EndSceneArgs)
         OnWorldRender,   // per-frame world draw pass                  (WorldRenderArgs)
         OnWorldRenderEnd,// world -> UI boundary, the post-fx slot     (WorldRenderEndArgs)
         OnM2BatchDraw,   // one M2 triangle batch is drawing           (M2BatchDrawArgs)
-        OnInput,         // input event                                (InputArgs)
+        OnInput,         // window input message (swallowable)         (InputArgs)
         OnAdtChunkBuild, // an ADT map chunk is being built            (AdtChunkArgs)
         OnTextureUpload, // a texture is about to upload to the device (TextureUploadArgs)
+        OnDoodadSpawn,   // a placed map doodad (CMapDoodad) was built (DoodadSpawnArgs)
+        OnWorldEnter,    // the world/map finished loading, in-world   (WorldEnterArgs)
+        OnWorldLeave,    // the world/map is being torn down           (WorldLeaveArgs)
         Count
     };
 
@@ -57,9 +60,14 @@ namespace wxl::events
         uint32_t startIndex;
         uint32_t primCount;
     };
-    struct InputArgs         { uint32_t message; uintptr_t wparam; uintptr_t lparam; };
+    // Window input. A subscriber that consumes the message sets `*handled = true`, which makes the core
+    // swallow it (the game does not also react). `handled` is never null. Args are otherwise read-only.
+    struct InputArgs         { uint32_t message; uintptr_t wparam; uintptr_t lparam; bool* handled; };
     struct AdtChunkArgs      { void* chunk; uint32_t layerCount; };
     struct TextureUploadArgs { void* texture; uint32_t width; uint32_t height; };
+    struct DoodadSpawnArgs   { void* doodad; };  // CMapDoodad just built (read transform via wxl::game::doodad)
+    struct WorldEnterArgs    { uint32_t mapId; };
+    struct WorldLeaveArgs    { uint32_t mapId; };
 
     using Handler = void (*)(void* user, const void* args);
 

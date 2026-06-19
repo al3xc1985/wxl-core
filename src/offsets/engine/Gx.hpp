@@ -36,14 +36,24 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kDrawTriangleBatch      = 0x008203B0;
     constexpr size_t    kDrawBatchCtxModelField = 0x60; // draw context -> current model
 
-    // End of the world 3D-render callback: the world -> UI boundary, the slot for post effects
-    // (after all world geometry, before the UI).
-    constexpr uintptr_t kWorldRenderEpilogue = 0x004FB074;
+    // World-frame finalize render callback (AURENDERCALLBACK), once per frame. Hook its ENTRY and fire the
+    // event AFTER the original returns = world done, UI not yet started. The world -> UI boundary / post-fx
+    // slot. (The interior address 0x004FB074 is mid-epilogue, NOT a hookable entry; kept only as an anchor.)
+    constexpr uintptr_t kWorldRenderFinalize = 0x004FAF90;
+    constexpr uintptr_t kWorldRenderEpilogueAnchor = 0x004FB074; // doc anchor only, do NOT hook
+    using WorldRenderFinalizeFn = void(__cdecl*)(void* worldFrame);
+
+    // Central texture-data upload to the device (deviceTex, x, y, x2, y2, flag). Full-surface uploads pass
+    // (tex, 0, 0, width, height, 1), so width = x2 - x, height = y2 - y. The single __cdecl choke point all
+    // upload paths funnel through.
+    constexpr uintptr_t kTextureUpdate = 0x00681F20;
+    using TextureUpdateFn = void(__cdecl*)(void* deviceTex, int x, int y, int x2, int y2, int flag);
 
     // IDirect3DDevice9 vtable indices used by the gx facade.
     namespace vt
     {
         constexpr unsigned kRelease                = 2;  // COM / shader object release
+        constexpr unsigned kPresent                = 17; // IDirect3DDevice9::Present (per-frame flip)
         constexpr unsigned kGetBackBuffer          = 18;
         constexpr unsigned kCreateTexture          = 23;
         constexpr unsigned kStretchRect            = 34;

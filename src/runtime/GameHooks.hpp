@@ -1,4 +1,4 @@
-// Render-pipeline detours that publish the render events.
+// Game-logic detours that publish the non-render events (model load, doodad spawn, world lifecycle...).
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,10 +16,10 @@
 
 #pragma once
 
-// The core owns the dangerous detours and republishes them as clean events. Install once after the
-// graphics device is up; the MinHook function detours are armed by the caller's EnableAll() afterwards.
-// Emits OnM2BatchDraw, OnEndScene, OnFrame, OnWorldRenderEnd.
-namespace wxl::runtime::render
+// Function-entry detours into game logic, republished as events. Installs the MinHook detours; the
+// caller runs hook::EnableAll() once after every installer. Emits OnModelLoad (and, as their RE lands,
+// OnDoodadSpawn / OnWorldEnter / OnWorldLeave / OnTextureUpload / OnAdtChunkBuild).
+namespace wxl::runtime::game
 {
     void Install();
 }
