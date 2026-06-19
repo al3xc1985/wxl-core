@@ -87,6 +87,16 @@ Output: `WarcraftXL.dll`. Vendored dependencies build with the project.
 > Modifying a client binary is on you: work on a **copy**, keep an untouched backup, and only point
 > this at a client and server you are permitted to modify and connect to.
 
+## Support
+
+**WarcraftXL is free, and it always will be - forever.** Nothing here is gated, and nothing ever
+will be. Sponsoring is completely optional - just a way to support the project and the time behind
+it, if you want to and can.
+
+<p align="center">
+  <a href="https://github.com/sponsors/iThorgrim"><img src="https://raw.githubusercontent.com/iThorgrim/ithorgrim/refs/heads/main/assets/sponsor.svg" alt="Sponsor iThorgrim" height="48"></a>
+</p>
+
 ## Legal
 
 WarcraftXL is an **interoperability project**. It distributes no Blizzard code and no game assets, and
