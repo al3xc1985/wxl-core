@@ -303,6 +303,44 @@ namespace wxl::game::doodad
     }
 
     /**
+     * @brief Reads the model-LOCAL bounding box from the parsed MD20 header.
+     *
+     * Follows instance(+0x34) -> model cache(+0x2c) -> MD20 header(+0x150), then reads the local AABB at
+     * H+0xa0 / H+0xac. Unlike the doodad's own bbox fields (a degenerate point set once at spawn) this is the
+     * model's real extents; transform the 8 corners by WorldMatrix to get the world box of the placement.
+     * @param d   Doodad pointer.
+     * @param lo  Receives the local box minimum in lo[0..2].
+     * @param hi  Receives the local box maximum in hi[0..2].
+     * @return True on success, false when the model is still loading or the box reads degenerate or absurd.
+     */
+    inline bool LocalBounds(void* d, float lo[3], float hi[3])
+    {
+        void* inst = Instance(d);
+        if (!inst) return false;
+        void* model = detail::P(inst, off::kInstModel);
+        if (!model) return false;
+        void* hdr = detail::P(model, off::kModelHeader);
+        if (!hdr) return false;
+        if (!detail::Readable(detail::F(hdr, off::kHdrBBoxMinX),
+                              (off::kHdrBBoxMaxZ - off::kHdrBBoxMinX) + sizeof(float)))
+            return false;
+
+        lo[0] = *detail::F(hdr, off::kHdrBBoxMinX); lo[1] = *detail::F(hdr, off::kHdrBBoxMinY); lo[2] = *detail::F(hdr, off::kHdrBBoxMinZ);
+        hi[0] = *detail::F(hdr, off::kHdrBBoxMaxX); hi[1] = *detail::F(hdr, off::kHdrBBoxMaxY); hi[2] = *detail::F(hdr, off::kHdrBBoxMaxZ);
+
+        float span = 0.0f;
+        for (int i = 0; i < 3; ++i)
+        {
+            if (lo[i] != lo[i] || hi[i] != hi[i]) return false; // NaN
+            if (hi[i] < lo[i]) return false;                    // inverted
+            const float e = hi[i] - lo[i];
+            if (e > 100000.0f) return false;                    // absurd
+            span += e;
+        }
+        return span > 1e-4f; // reject a degenerate point
+    }
+
+    /**
      * @brief Reads the live world matrix the renderer reads each frame: instance(+0x34) + 0xb4.
      * @param d  Doodad pointer.
      * @param m  Receives 16 floats, row-major D3D row-vector with translation in row 3 (m[12..14]).
