@@ -41,6 +41,8 @@ namespace wxl::events
         OnInput,         // window input message (swallowable)         (InputArgs)
         OnWorldClick,    // a world click resolved to a point/object   (WorldClickArgs)
         OnAdtChunkBuild, // an ADT map chunk is being built            (AdtChunkArgs)
+        OnWmoRootLoad,   // a WMO root buffer is read, before the walk (WmoRootLoadArgs)
+        OnWmoGroupLoad,  // a WMO group buffer is read, before the walk(WmoGroupLoadArgs)
         OnTextureUpload, // a texture is about to upload to the device (TextureUploadArgs)
         OnDoodadSpawn,   // a placed map doodad (CMapDoodad) was built (DoodadSpawnArgs)
         OnWorldEnter,    // the world/map finished loading, in-world   (WorldEnterArgs)
@@ -112,6 +114,16 @@ namespace wxl::events
     struct WorldClickArgs    { uint32_t message; int hitType; float x; float y; float z; void* objLo; void* objHi; };
     /** @brief Args for OnAdtChunkBuild. */
     struct AdtChunkArgs      { void* chunk; uint32_t layerCount; };
+    /**
+     * @brief Args for OnWmoRootLoad, fired after the WMO root buffer is read and before the native chunk
+     *        walk; the window to reshape the root in place (read/replace the buffer via wxl::game::wmo).
+     */
+    struct WmoRootLoadArgs   { void* root; };
+    /**
+     * @brief Args for OnWmoGroupLoad, fired after a WMO group buffer is read and before the native
+     *        sub-chunk walk; the window to reshape the group in place (read/replace via wxl::game::wmo).
+     */
+    struct WmoGroupLoadArgs  { void* group; };
     /** @brief Args for OnTextureUpload. */
     struct TextureUploadArgs { void* texture; uint32_t width; uint32_t height; };
     /** @brief Args for OnDoodadSpawn; read the transform via wxl::game::doodad. */

@@ -63,6 +63,64 @@ namespace wxl::game::wmo
     }
 
     /**
+     * @brief Reads the root buffer byte size (the bound the native chunk walk reads to).
+     * @param root  Map-object root.
+     * @return The root buffer byte size, or 0 on a null root.
+     */
+    inline uint32_t RootSize(void* root)
+    {
+        if (!root)
+            return 0;
+        return static_cast<off::Root*>(root)->rootSize;
+    }
+
+    /**
+     * @brief Sets the root buffer byte size after reshaping the buffer in place.
+     * @param root  Map-object root.
+     * @param size  New byte size the native chunk walk should read to.
+     */
+    inline void SetRootSize(void* root, uint32_t size)
+    {
+        if (root)
+            static_cast<off::Root*>(root)->rootSize = size;
+    }
+
+    /**
+     * @brief Reads the group buffer pointer.
+     * @param group  Map-object group.
+     * @return The group buffer pointer, or null on a null group.
+     */
+    inline void* GroupBuffer(void* group)
+    {
+        if (!group)
+            return nullptr;
+        return static_cast<off::Group*>(group)->groupBuffer;
+    }
+
+    /**
+     * @brief Reads the group buffer byte size (the bound the native sub-chunk walk reads to).
+     * @param group  Map-object group.
+     * @return The group buffer byte size, or 0 on a null group.
+     */
+    inline uint32_t GroupSize(void* group)
+    {
+        if (!group)
+            return 0;
+        return static_cast<off::Group*>(group)->groupSize;
+    }
+
+    /**
+     * @brief Sets the group buffer byte size after reshaping the buffer in place.
+     * @param group  Map-object group.
+     * @param size   New byte size the native sub-chunk walk should read to.
+     */
+    inline void SetGroupSize(void* group, uint32_t size)
+    {
+        if (group)
+            static_cast<off::Group*>(group)->groupSize = size;
+    }
+
+    /**
      * @brief Reads the group count (the group-array bound).
      * @param root  Map-object root.
      * @return The group count, or 0 on a null root.

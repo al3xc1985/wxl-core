@@ -24,6 +24,7 @@
 #include "offsets/game/ADT.hpp"
 #include "offsets/game/Doodad.hpp"
 #include "offsets/game/M2.hpp"
+#include "offsets/game/WMO.hpp"
 #include "offsets/game/World.hpp"
 
 #include <windows.h>
@@ -37,6 +38,7 @@ namespace
     namespace gxoff = wxl::offsets::engine::gx;
     namespace adt   = wxl::offsets::game::adt;
     namespace dd    = wxl::offsets::game::doodad;
+    namespace wmo   = wxl::offsets::game::wmo;
     namespace wld   = wxl::offsets::game::world;
     namespace frame = wxl::offsets::engine::frame;
 
@@ -46,6 +48,8 @@ namespace
     dd::SpawnFromMDDFFn        g_origDoodadSpawn  = nullptr;
     gxoff::TextureUpdateFn     g_origTexUpdate    = nullptr;
     adt::Map_ChunkBuildFn      g_origChunkBuild   = nullptr;
+    wmo::Wmo_RootCompleteFn    g_origWmoRoot      = nullptr;
+    wmo::WmoGroup_ParseFn      g_origWmoGroup     = nullptr;
     wld::World_EnterFn         g_origWorldEnter   = nullptr;
     frame::FramePumpFn         g_origFramePump    = nullptr;
 
@@ -164,6 +168,35 @@ namespace
     }
 
     /**
+     * @brief Detours WMO root read-completion, emitting OnWmoRootLoad before the native chunk walk.
+     *
+     * Fires once after the async read fills the root buffer and before the walker runs, so a subscriber
+     * may reshape the root buffer in place; the native walk then reads the reshaped bytes.
+     * @param root  map-object root whose buffer was just read.
+     */
+    void __cdecl hkWmoRootComplete(void* root)
+    {
+        ev::WmoRootLoadArgs a{ root };
+        ev::Emit(ev::Event::OnWmoRootLoad, &a);
+        g_origWmoRoot(root);
+    }
+
+    /**
+     * @brief Detours WMO group parse, emitting OnWmoGroupLoad before the native sub-chunk walk.
+     *
+     * The join point of the sync and async group-load paths, before the sub-chunk walk, so a subscriber
+     * may reshape the group buffer in place; the native walk then reads the reshaped bytes.
+     * @param group  map-object group whose buffer was just read.
+     * @param edx    unused register slot for the thiscall convention.
+     */
+    void __fastcall hkWmoGroupParse(void* group, void* edx)
+    {
+        ev::WmoGroupLoadArgs a{ group };
+        ev::Emit(ev::Event::OnWmoGroupLoad, &a);
+        g_origWmoGroup(group, edx);
+    }
+
+    /**
      * @brief Detours world enter, emitting OnWorldLeave before and OnWorldEnter after the transition.
      * @param worldTime          target world time.
      * @param withLoadingScreen  nonzero to show the loading screen.
@@ -216,6 +249,12 @@ namespace wxl::runtime::game
         wxl::core::hook::Install("ChunkBuild", adt::kChunkBuild,
                                  reinterpret_cast<void*>(&hkChunkBuild),
                                  reinterpret_cast<void**>(&g_origChunkBuild));
+        wxl::core::hook::Install("WmoRootComplete", wmo::kRootComplete,
+                                 reinterpret_cast<void*>(&hkWmoRootComplete),
+                                 reinterpret_cast<void**>(&g_origWmoRoot));
+        wxl::core::hook::Install("WmoGroupParse", wmo::kGroupParse,
+                                 reinterpret_cast<void*>(&hkWmoGroupParse),
+                                 reinterpret_cast<void**>(&g_origWmoGroup));
         wxl::core::hook::Install("CWorldEnter", wld::kEnter,
                                  reinterpret_cast<void*>(&hkWorldEnter),
                                  reinterpret_cast<void**>(&g_origWorldEnter));
@@ -223,6 +262,6 @@ namespace wxl::runtime::game
                                  reinterpret_cast<void*>(&hkFramePump),
                                  reinterpret_cast<void**>(&g_origFramePump));
 
-        WLOG_INFO("game: hooks installed (M2Init, M2FinalizeSkin, M2SetupBatchAlpha, DoodadSpawn, TextureUpdate, ChunkBuild, CWorldEnter, FramePump)");
+        WLOG_INFO("game: hooks installed (M2Init, M2FinalizeSkin, M2SetupBatchAlpha, DoodadSpawn, TextureUpdate, ChunkBuild, WmoRootComplete, WmoGroupParse, CWorldEnter, FramePump)");
     }
 }
