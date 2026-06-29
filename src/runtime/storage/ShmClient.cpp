@@ -16,6 +16,7 @@
 
 #include "runtime/storage/ShmClient.hpp"
 
+#include "core/Logger.hpp"
 #include "events/Event.hpp"
 #include "host/ipc/Protocol.hpp"
 
@@ -42,7 +43,11 @@ namespace
     // --- channel pool: a free channel is acquired per request, then released ---
     std::atomic<bool> g_channelBusy[kChannels] = {}; // false = free
 
-    constexpr uint32_t kRequestTimeoutMs = 2000;
+    // Cold modern transforms can take several seconds before the host cache is warm. Timing out short here
+    // makes the client fall back to native archives, which cannot see host-owned loose patch dirs -- so a
+    // slow-but-valid open would silently lose its host version. Give the host generous time to answer.
+    constexpr uint32_t kRequestTimeoutMs = 30000;
+    std::atomic<uint32_t> g_timeouts{ 0 };
 
     /**
      * @brief Returns the directory of this module, i.e. the client root.
@@ -142,21 +147,41 @@ namespace
     }
 
     /**
-     * @brief Runs one request on a channel: write payload, bump reqSeq, signal, wait for response.
-     * @param ch   channel index.
-     * @param req  request payload.
-     * @return true when a response arrives before the timeout.
+     * @brief Runs one request on a channel: write payload, bump reqSeq, signal, wait for the matching response.
+     *
+     * Only returns true once the response stamped with THIS request's sequence arrives. The response event is
+     * reset first so a leftover signal from an earlier (e.g. timed-out) cycle is never mistaken for this one,
+     * and the wait is sliced so a stale response that wakes us with a mismatched sequence is discarded rather
+     * than accepted -- the channel then resynchronises on the next exchange.
+     * @param ch      channel index.
+     * @param req     request payload.
+     * @param seqOut  receives the sequence assigned to this request.
+     * @return true when the response matching seqOut arrives before the timeout.
      */
-    bool SendOnChannel(uint32_t ch, const std::vector<uint8_t>& req)
+    bool SendOnChannel(uint32_t ch, const std::vector<uint8_t>& req, uint32_t& seqOut)
     {
         if (req.size() > kChannelPayload) return false;
         auto* hdr = ChannelHeader(g_base, ch);
         uint8_t* payload = ChannelPayload(g_base, ch);
+        ResetEvent(g_respEvent[ch]); // drop any stale signal from a previous cycle on this channel
         memcpy(payload, req.data(), req.size());
         hdr->reqLen = static_cast<uint32_t>(req.size());
-        ++hdr->reqSeq;
+        seqOut = ++hdr->reqSeq;
         SetEvent(g_reqEvent[ch]);
-        return WaitForSingleObject(g_respEvent[ch], kRequestTimeoutMs) == WAIT_OBJECT_0;
+
+        DWORD waited = 0;
+        while (waited < kRequestTimeoutMs)
+        {
+            DWORD slice = kRequestTimeoutMs - waited;
+            if (slice > 50) slice = 50;
+            DWORD rc = WaitForSingleObject(g_respEvent[ch], slice);
+            if (rc == WAIT_OBJECT_0 && hdr->respSeq == seqOut) return true; // our response, matched
+            if (rc != WAIT_OBJECT_0 && rc != WAIT_TIMEOUT) return false;    // event failure: give up
+            waited += slice; // timeout slice, or a stale mismatched signal: keep waiting for ours
+        }
+        if (++g_timeouts <= 20)
+            WLOG_WARN("ipc: request seq=%u timed out after %u ms", seqOut, kRequestTimeoutMs);
+        return false;
     }
 
     /**
@@ -173,12 +198,14 @@ namespace
     {
         if (!ConnectInner()) return false;
         uint32_t ch = AcquireChannel();
-        bool ok = SendOnChannel(ch, req);
+        uint32_t reqSeq = 0;
+        bool ok = SendOnChannel(ch, req, reqSeq);
         if (ok)
         {
             auto* hdr = ChannelHeader(g_base, ch);
             const uint8_t* payload = ChannelPayload(g_base, ch);
-            if (hdr->respLen && hdr->respLen <= kChannelPayload)
+            // Deliver only a response stamped with our own sequence and within the window.
+            if (hdr->respSeq == reqSeq && hdr->respLen && hdr->respLen <= kChannelPayload)
                 onResponse(flexbuffers::GetRoot(payload, hdr->respLen).AsVector());
         }
         ReleaseChannel(ch);
@@ -283,10 +310,16 @@ namespace wxl::runtime::ipc
         fbb.Vector([&]() { fbb.UInt(OpFileOpen); fbb.String(name); fbb.UInt(flags); });
         fbb.Finish();
 
-        FileOpenResult r{ false, 0, 0, {} };
+        // Default {ok=false, hostMiss=false}: if Transact delivers no matching response (timeout/desync), the
+        // callback never runs and the result stays a transient transport failure -- never a cacheable miss.
+        FileOpenResult r{ false, false, 0, 0, {} };
         Transact(fbb.GetBuffer(), [&](const flexbuffers::Vector& vec) {
-            if (vec[0].AsUInt32() != StOk) return;
-            r = { true, vec[1].AsUInt32(), vec[2].AsUInt32(), {} };
+            const uint32_t status = vec[0].AsUInt32();
+            if (status == StNotFound) { r.hostMiss = true; return; } // host answered: file absent (cacheable)
+            if (status != StOk) return;                              // StBadRequest / other: transient, not a miss
+            r.ok   = true;
+            r.id   = vec[1].AsUInt32();
+            r.size = vec[2].AsUInt32();
             if (r.id == 0 && vec.size() > 3) // inline: copy bytes out of the shared window
             {
                 auto blob = vec[3].AsBlob();

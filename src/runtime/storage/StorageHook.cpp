@@ -24,9 +24,14 @@
 #include "runtime/adt/Adt.hpp"
 
 #include <windows.h>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace io  = wxl::offsets::engine::io;
@@ -36,6 +41,7 @@ namespace
 {
     // Marks a synthetic handle at +0x00 (a native handle holds a small kind there).
     constexpr uint32_t kHandleMagic = 0x464C5857; // 'WXLF'
+    constexpr size_t   kMaxArchiveName = 512;     // upper bound when copying a name out of the native boundary
 
 #pragma pack(push, 1)
     /**
@@ -83,6 +89,13 @@ namespace
     uint32_t g_missed = 0; // host connected but file not served (read natively)
     uint32_t g_opens  = 0; // intercept attempts
 
+    // Names the host explicitly reported absent. Re-opening one skips the IPC round-trip and goes straight
+    // native. Only a CONFIRMED host miss is recorded here -- never a timeout/desync -- so a transient failure
+    // can never poison a servable file for the session. Capped so a pathological session stays bounded.
+    std::mutex g_missMutex;
+    std::unordered_set<std::string> g_knownMisses;
+    constexpr size_t kKnownMissCap = 16384;
+
     std::vector<wxl::runtime::storage::ClientProvideFn>& ClientProviders()
     {
         static std::vector<wxl::runtime::storage::ClientProvideFn> v;
@@ -95,9 +108,9 @@ namespace
      * @param suffix  suffix to match.
      * @return true when s ends with suffix.
      */
-    bool EndsWithCI(const char* s, const char* suffix)
+    bool EndsWithCI(std::string_view s, const char* suffix)
     {
-        size_t ls = strlen(s), lf = strlen(suffix);
+        size_t ls = s.size(), lf = strlen(suffix);
         if (lf > ls) return false;
         for (size_t i = 0; i < lf; ++i)
             if (tolower(static_cast<unsigned char>(s[ls - lf + i])) != suffix[i]) return false;
@@ -110,16 +123,74 @@ namespace
      * Skips .pub/.url, which are existence probes rather than archive content. Skips the modern terrain
      * sidecars the client has no loader for: .tex (the per-map texture catalog) and _lod.adt (the
      * low-detail tile). Serving their bytes stalls or faults the terrain load, so the open is left to miss
-     * natively and the loader proceeds without them.
+     * natively and the loader proceeds without them. The name is already validated/non-empty (CopyArchiveName).
      * @param name  file name to test.
      * @return true when the name should be served from the host.
      */
-    bool ShouldIntercept(const char* name)
+    bool ShouldIntercept(std::string_view name)
     {
-        if (!name || name[0] == '\0') return false;
         if (EndsWithCI(name, ".pub") || EndsWithCI(name, ".url")) return false;
         if (EndsWithCI(name, ".tex") || EndsWithCI(name, "_lod.adt")) return false;
         return true;
+    }
+
+    /**
+     * @brief Returns a stable cache key for archive names that may vary by slash or case.
+     * @param name  validated archive name.
+     * @return lowercased name with forward slashes folded to backslashes.
+     */
+    std::string NameKey(std::string_view name)
+    {
+        std::string key(name);
+        for (char& c : key)
+            c = (c == '/') ? '\\' : static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        return key;
+    }
+
+    /**
+     * @brief Tests whether the host already reported this name absent.
+     * @param key  normalized archive name key.
+     * @return true when the name can go straight to native fallback.
+     */
+    bool KnownMiss(const std::string& key)
+    {
+        std::lock_guard<std::mutex> lock(g_missMutex);
+        return g_knownMisses.find(key) != g_knownMisses.end();
+    }
+
+    /**
+     * @brief Records a confirmed host miss, capped so pathological sessions do not grow unbounded.
+     * @param key  normalized archive name key.
+     */
+    void RememberMiss(std::string&& key)
+    {
+        std::lock_guard<std::mutex> lock(g_missMutex);
+        if (g_knownMisses.size() < kKnownMissCap)
+            g_knownMisses.insert(std::move(key));
+    }
+
+    /**
+     * @brief Copies a plausible archive path out of the native call boundary.
+     *
+     * The native open surface occasionally receives non-path sentinels or stale small integers whose bytes
+     * look like a string (e.g. a lone 0x01). Keeping those out of the host IPC path stops one bogus open from
+     * desynchronising later requests. Validates content only -- a wild pointer is assumed not to occur here.
+     * @param name  native name pointer.
+     * @param out   receives a bounded, validated copy.
+     * @return true when the bytes look like a normal archive path.
+     */
+    bool CopyArchiveName(const char* name, std::string& out)
+    {
+        if (!name) return false;
+        out.clear();
+        for (size_t i = 0; i < kMaxArchiveName; ++i)
+        {
+            unsigned char c = static_cast<unsigned char>(name[i]);
+            if (c == '\0') return !out.empty();
+            if (c < 0x20 || c >= 0x7f) return false; // control/extended byte: not a normal archive path
+            out.push_back(static_cast<char>(c));
+        }
+        return false; // unterminated within the bound: treat as bogus
     }
 
     /**
@@ -145,8 +216,10 @@ namespace
      */
     bool TryServe(void* archive, const char* name, uint32_t flags, void** out)
     {
-        // Specific-archive opens (archive != null) stay native.
-        if (archive != nullptr || !ShouldIntercept(name)) return false;
+        // Specific-archive opens (archive != null) stay native. Validate the name out of the native boundary
+        // first: a bogus open (non-path bytes) must never reach the host IPC and desync the channel.
+        std::string safeName;
+        if (archive != nullptr || !CopyArchiveName(name, safeName) || !ShouldIntercept(safeName)) return false;
 
         if ((++g_opens % 2000) == 0)
             WLOG_INFO("Storage stats: opens=%u served=%u missed=%u", g_opens, g_served, g_missed);
@@ -157,13 +230,13 @@ namespace
             std::vector<uint8_t> provided;
             for (auto fn : ClientProviders())
             {
-                if (!fn(name, provided)) continue;
+                if (!fn(safeName.c_str(), provided)) continue;
                 auto* f = static_cast<HostFile*>(calloc(1, sizeof(HostFile)));
                 if (!f) break;
                 f->magic     = kHandleMagic;
                 f->size      = static_cast<uint32_t>(provided.size());
                 f->buffer    = static_cast<uint8_t*>(malloc(f->size ? f->size : 1));
-                f->fullName  = DupName(name);
+                f->fullName  = DupName(safeName.c_str());
                 f->shortName = f->fullName;
                 if (f->buffer && f->size) memcpy(f->buffer, provided.data(), f->size);
                 if (out) *out = f;
@@ -172,7 +245,11 @@ namespace
             }
         }
 
-        ipc::FileOpenResult r = ipc::FileOpen(name, flags);
+        // Skip the IPC round-trip for a name the host has already confirmed absent.
+        std::string key = NameKey(safeName);
+        if (KnownMiss(key)) return false;
+
+        ipc::FileOpenResult r = ipc::FileOpen(safeName, flags);
         if (r.ok)
         {
             auto* f = static_cast<HostFile*>(calloc(1, sizeof(HostFile)));
@@ -181,7 +258,7 @@ namespace
                 f->magic = kHandleMagic;
                 f->size = r.size;
                 f->position = 0;
-                f->fullName = DupName(name);
+                f->fullName = DupName(safeName.c_str());
                 f->shortName = f->fullName;
 
                 bool wholeFile = (flags & io::kOpenWholeFile) != 0;
@@ -233,7 +310,7 @@ namespace
                 // the native loader sees only the ADT bytes.
                 if (ok && f->buffer && f->size)
                 {
-                    const uint32_t served = wxl::runtime::adt::IngestAdtBytes(name, f->buffer, f->size);
+                    const uint32_t served = wxl::runtime::adt::IngestAdtBytes(safeName.c_str(), f->buffer, f->size);
                     if (served < f->size) f->size = served;
                 }
 
@@ -241,7 +318,7 @@ namespace
                 {
                     if (out) *out = f;
                     if (g_served < 60)
-                        WLOG_INFO("Storage: serve '%s' (%u B, %s) from host", name, r.size, mode);
+                        WLOG_INFO("Storage: serve '%s' (%u B, %s) from host", safeName.c_str(), r.size, mode);
                     ++g_served;
                     return true;
                 }
@@ -250,9 +327,13 @@ namespace
                 free(f);
             }
         }
-        else if (ipc::IsConnected())
+        else if (r.hostMiss)
         {
-            if (g_missed < 200) WLOG_INFO("Storage: MISS '%s' -> native archive", name);
+            // The host answered and reported the file absent: cache it so the next open skips the IPC and
+            // goes straight native. Only a CONFIRMED miss is cached -- a timeout/desync (r.hostMiss == false)
+            // falls back to native for this open alone and is retried next time, never poisoning the name.
+            RememberMiss(std::move(key));
+            if (g_missed < 200) WLOG_INFO("Storage: MISS '%s' -> native archive", safeName.c_str());
             ++g_missed;
         }
         return false;
