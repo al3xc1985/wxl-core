@@ -193,6 +193,8 @@ namespace wxl::offsets::engine::gx
         constexpr unsigned kGetVertexShader        = 93;
         constexpr unsigned kSetVertexShaderConstantF = 94;
         constexpr unsigned kGetVertexShaderConstantF = 95;
+        constexpr unsigned kSetStreamSource        = 100;
+        constexpr unsigned kGetStreamSource        = 101;
         constexpr unsigned kCreatePixelShader      = 106;
         constexpr unsigned kSetPixelShader         = 107;
         constexpr unsigned kGetPixelShader         = 108;
