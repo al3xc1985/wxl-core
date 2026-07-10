@@ -141,6 +141,18 @@ namespace wxl::offsets::engine::gx
     // login). Its per-mip blit is guarded by "source != 0", so clearing the table after each upload makes an
     // under-filled build's high slots read 0 and get skipped.
 
+    // The buffer behind kMipTablePtr is allocated ONCE at boot (TextureInitialize) sized for a 32-bpp
+    // 0x400 x 0x400 mip chain (~5.59 MB), and every synchronous mip fill (CBLPFile_LockChain: atlas
+    // reload, self-heal, TGA) memcpys the texture's decoded chain into it. A 2048 DXT5 chain already
+    // exceeds that capacity by a few bytes, so any texture wider than 1024 corrupts the heap the first
+    // time it takes the sync path. The two addresses below are the width/height push imm32 operands of
+    // the boot-time size computation; widening both to 0x800 (32-bpp 2048 chain, ~22.4 MB) makes every
+    // chain of any encoding up to 2048 fit.
+    constexpr uintptr_t kMipScratchDimHImm = 0x004B7F8D; // push imm32 operand, height arg
+    constexpr uintptr_t kMipScratchDimWImm = 0x004B7F92; // push imm32 operand, width arg
+    constexpr uint32_t  kMipScratchStockEdge = 0x400;    // shipped operand value at both sites
+    constexpr uint32_t  kMipScratchWideEdge  = 0x800;    // widened capacity (2048 any-encoding chains)
+
     // Per-frame liquid render pass loop (this-in-ECX). Brackets every visible liquid instance of one pass;
     // both passes route through it (passType 0 main, 1 secondary). Runs late in the frame, after the liquid
     // textures are bound and the render queues flush, so the wave/ripple animation is already applied.
